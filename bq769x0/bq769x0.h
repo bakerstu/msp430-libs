@@ -13,7 +13,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "uscib0_i2c.h"
+#include "uscib_i2c.h"
 
 /** Period between each coulomb count read in msec. */
 #define BQ769X0_COULOMB_COUNT_PERIOD 250

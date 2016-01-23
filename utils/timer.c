@@ -10,7 +10,7 @@
 #include <msp430.h>
 #include <stdlib.h>
 
-#include "watchdog.h"
+#include "wdt.h"
 
 /** Timer A registers */
 typedef struct

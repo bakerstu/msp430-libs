@@ -9,7 +9,7 @@
 
 #include <msp430.h>
 
-#include "watchdog.h"
+#include "wdt.h"
 
 extern uint16_t eepromMem[FLASH_SIZE/sizeof(uint16_t)];
 

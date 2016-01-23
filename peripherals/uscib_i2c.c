@@ -1,5 +1,5 @@
 /**
- * @file uscib0_i2c.h I2C Master driver using USCIB0 peripheral.
+ * @file uscib_i2c.h I2C Master driver using USCIB0 peripheral.
  *
  * @author Stuart W. Baker
  * @date 19 February 2015
@@ -9,9 +9,9 @@
 
 #include "msp430_libs_user.h"
 
-#include "uscib0_i2c.h"
+#include "uscib_i2c.h"
 #include "lpm.h"
-#include "watchdog.h"
+#include "wdt.h"
 #include "timer.h"
 #include "gpio.h"
 

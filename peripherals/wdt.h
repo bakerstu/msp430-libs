@@ -1,5 +1,5 @@
 /**
- * @file watchdog.h
+ * @file wdt.h
  * Management of the watchdog timer.
  *
  * @author Stuart W. Baker
