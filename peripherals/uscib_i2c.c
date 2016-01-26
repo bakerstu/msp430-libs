@@ -46,10 +46,10 @@ typedef struct
     {
         struct
         {
-            uint8_t UCBxBR0; /**< bit rate control register 0 */
-            uint8_t UCBxBR1; /**< bit rate control register 1 */
+            volatile uint8_t UCBxBR0; /**< bit rate control register 0 */
+            volatile uint8_t UCBxBR1; /**< bit rate control register 1 */
         };
-        uint16_t UCBxBR; /**< bit rate control register */
+        volatile uint16_t UCBxBR; /**< bit rate control register */
     };
     volatile uint8_t UCBxI2CIE; /**< interrupt enable register */
     volatile uint8_t UCBxSTAT; /**< status gregister */
@@ -132,7 +132,7 @@ bool I2C_sendReceive(uint16_t instance, uint8_t address,
                      void *sendData, size_t sendSize,
                      void *receiveData, size_t receiveSize)
 {
-    if (I2C_send(instance, address, sendData, sendSize) == true)
+    if (I2C_send(instance, address, sendData, sendSize) == false)
     {
         return false;
     }
@@ -202,7 +202,7 @@ bool I2C_receive(uint16_t instance, uint8_t address, void *data, size_t size)
     registers->UCBxCTL1 |= UCTXSTT;
 
     /* if this is a single byte transaction */
-    if (i2cSize == 0)
+    if (i2cSize[index] == 0)
     {
         /* wait for start condition sent */
         while (registers->UCBxCTL1 & UCTXSTT);
