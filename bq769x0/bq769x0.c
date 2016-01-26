@@ -208,6 +208,16 @@ typedef struct
     };
 } BQ769X0_Protect3;
 
+/** CC */
+typedef struct
+{
+    union
+    {
+        uint16_t word; ///< raw value as read
+        int16_t cc; ///< signed data
+    };
+} BQ769X0_CC;
+
 /** ADC Gain 1 */
 typedef struct
 {
@@ -254,47 +264,47 @@ static int8_t adcOffset_mV = 0;
 
 static const uint16_t batteryCharge[] =
 {
-    13925, ///<  0.0% charge
-    15000, ///<  2.5% charge
-    16125, ///<  5.0% charge
-    16925, ///<  7.5% charge
-    17195, ///< 10.0% charge
-    17260, ///< 12.5% charge
-    17315, ///< 15.0% charge
-    17450, ///< 17.5% charge
-    17605, ///< 20.0% charge
-    17725, ///< 22.5% charge
-    17825, ///< 25.0% charge
-    17895, ///< 27.5% charge
-    17930, ///< 30.0% charge
-    17965, ///< 32.5% charge
-    17995, ///< 35.0% charge
-    18020, ///< 37.5% charge
-    18060, ///< 40.0% charge
-    18095, ///< 42.5% charge
-    18130, ///< 45.0% charge
-    18175, ///< 47.5% charge
-    18225, ///< 50.0% charge
-    18280, ///< 52.5% charge
-    18430, ///< 55.0% charge
-    18575, ///< 57.5% charge
-    18705, ///< 60.0% charge
-    18790, ///< 62.5% charge
-    18895, ///< 65.0% charge
-    19005, ///< 67.5% charge
-    19130, ///< 70.0% charge
-    19255, ///< 72.5% charge
-    19380, ///< 75.0% charge
-    19515, ///< 77.5% charge
-    19660, ///< 80.0% charge
-    19800, ///< 82.5% charge
-    19955, ///< 85.0% charge
-    20100, ///< 87.5% charge
-    20255, ///< 90.0% charge
-    20415, ///< 92.5% charge
-    20585, ///< 95.0% charge
-    20765, ///< 97.5% charge
-    20965, ///< 100% charge
+    432, ///<  0.0% charge
+    465, ///<  2.5% charge
+    500, ///<  5.0% charge
+    525, ///<  7.5% charge
+    534, ///< 10.0% charge
+    536, ///< 12.5% charge
+    537, ///< 15.0% charge
+    541, ///< 17.5% charge
+    546, ///< 20.0% charge
+    550, ///< 22.5% charge
+    553, ///< 25.0% charge
+    555, ///< 27.5% charge
+    556, ///< 30.0% charge
+    557, ///< 32.5% charge
+    558, ///< 35.0% charge
+    559, ///< 37.5% charge
+    560, ///< 40.0% charge
+    561, ///< 42.5% charge
+    563, ///< 45.0% charge
+    564, ///< 47.5% charge
+    566, ///< 50.0% charge
+    567, ///< 52.5% charge
+    572, ///< 55.0% charge
+    576, ///< 57.5% charge
+    580, ///< 60.0% charge
+    583, ///< 62.5% charge
+    586, ///< 65.0% charge
+    590, ///< 67.5% charge
+    594, ///< 70.0% charge
+    597, ///< 72.5% charge
+    601, ///< 75.0% charge
+    606, ///< 77.5% charge
+    610, ///< 80.0% charge
+    614, ///< 82.5% charge
+    619, ///< 85.0% charge
+    624, ///< 87.5% charge
+    629, ///< 90.0% charge
+    633, ///< 92.5% charge
+    639, ///< 95.0% charge
+    644, ///< 97.5% charge
+    651, ///< 100% charge
 };
 
 uint8_t BQ769X0_registerRead(BQ769X0_Register reg);
@@ -338,14 +348,25 @@ void BQ769X0_init(BQ769X0_Device device)
             break;
     }
 
+    BQ769X0_wakeup();
+
     GPIO_INTERRUPT_HIGH_TO_LOW(BQ_FAULT_INT);
     GPIO_INTERRUPT_ENABLE(BQ_FAULT_INT);
 
     //GPIO_INTERRUPT_HIGH_TO_LOW(BQ_ALERT_INT);
     //GPIO_INTERRUPT_ENABLE(BQ_ALERT_INT);
 
-    volatile BQ769X0_AdcGain1 adcgain1;
-    volatile BQ769X0_AdcGain2 adcgain2;
+}
+
+/** Wakeup the BQ769x0 and reinitialize its volatile state.
+ */
+void BQ769X0_wakeup(void)
+{
+    GPIO_OUTPUT_SET(THERMISTER_ENABLE);
+    BQ769X0_enable();
+
+    BQ769X0_AdcGain1 adcgain1;
+    BQ769X0_AdcGain2 adcgain2;
 
     adcgain1.byte = BQ769X0_registerRead(BQ_ADCGAIN1);
     adcgain2.byte = BQ769X0_registerRead(BQ_ADCGAIN2);
@@ -354,14 +375,21 @@ void BQ769X0_init(BQ769X0_Device device)
 
     adcOffset_mV = BQ769X0_registerRead(BQ_ADCOFFSET);
 
-    BQ769X0_wakeup();
-}
+    /** @todo not the correct place to do, it should be as soon as we wakeup */
+    uint16_t battery_voltage = ADC_convert(ADC_CH_1);
+    GPIO_OUTPUT_CLR(THERMISTER_ENABLE);
 
-/** Wakeup the BQ769x0 and reinitialize its volatile state.
- */
-void BQ769X0_wakeup(void)
-{
-    BQ769X0_enable();
+    uint16_t i;
+
+    for (i = 0; i < sizeof(batteryCharge)/sizeof(batteryCharge[0]); ++i)
+    {
+        if (battery_voltage <= batteryCharge[i])
+        {
+            break;
+        }
+    }
+
+    coulombCount = i * 125;
 
     BQ769X0_registerWrite(BQ_PROTECT1, BQ769X0_PROTECT1_USER);
     BQ769X0_registerWrite(BQ_PROTECT2, BQ769X0_PROTECT2_USER);
@@ -391,6 +419,9 @@ void BQ769X0_wakeup(void)
                             (5 * 1000 * (int32_t)adcOffset_mV);
 
     batVoltage_mV = (batVoltage_uV + 500) / 1000;
+
+    /* clear any faults */
+    BQ769X0_registerWrite(BQ_SYS_STAT, 0xFF);
 }
 
 /** Service any pending BQ769x0 tasks.
@@ -402,8 +433,17 @@ void BQ769X0_service(void)
 
     if (status.ccReady)
     {
-        /* coulome data ready, update coulomb count */
-        coulombCount += BQ769X0_registerReadWord(BQ_CC);
+        BQ769X0_CC cc;
+
+        /* coulomb data ready, update coulomb count */
+        cc.word = BQ769X0_registerReadWord(BQ_CC);
+
+        /* Translate to mA, multiply by 1000.
+         * Sampled every 250 msec, divide by 4 to normalize to 1 second.
+         * Divide by amps/tick to normalize to the sense resistance
+         * Nomralize to hours, divide by 3600.
+         */
+        coulombCount += (cc.cc * 1000) / BQ769X0_CURRENT_SENSE_PER_TICK / 4 / 3600;
 
         BQ769X0_SysStat clear;
         clear.ccReady = 1;
@@ -416,8 +456,9 @@ void BQ769X0_service(void)
 void BQ769X0_enable(void)
 {
     GPIO_DIRECTION_OUTPUT(BQ_WAKEUP);
-    TIMER_spinDelay(12);
+    Timer_spinDelay(15);
     GPIO_DIRECTION_INPUT(BQ_WAKEUP);
+    Timer_spinDelay(2);
 }
 
 /** Start coulomb counting.
