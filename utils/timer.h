@@ -63,7 +63,7 @@ typedef struct
     uint32_t timerClk;
     /** timer tick rate in Hz, typcially 1000. */
     uint32_t timerRate;
-} TIMER_Config;
+} Timer_Config;
 
 /** Data structure for Timer metadata.
  * This structure should not be accessed directly by an application.  It
@@ -92,14 +92,14 @@ typedef struct Timer
  *                        - \b TIMER_1_MODULE
  * @param config Confugration structure for the TIMER.
  */
-void TIMER_init(uint16_t instance, TIMER_Config *config);
+void Timer_init(uint16_t instance, Timer_Config *config);
 
 /** Create and initialize the timer.
  * @param timer reference to the timer that will be initialized.
- * @param callback timer user application callback
+ * @param callback timer user application callback, may be NULL for no callback
  * @param priv private data for callback
  */
-inline void TIMER_create(Timer *timer, uint32_t (*callback)(void *), void *priv)
+inline void Timer_create(Timer *timer, uint32_t (*callback)(void *), void *priv)
 {
     timer->when = 0;
     timer->priv = priv;
@@ -109,13 +109,13 @@ inline void TIMER_create(Timer *timer, uint32_t (*callback)(void *), void *priv)
 /** Restart the timer based on a previous period.
  * @param timer reference to the timer that will be restarted.
  */
-void TIMER_restart(Timer *timer);
+void Timer_restart(Timer *timer);
 
 /** Test to see if the timer is active.
  * @param timer reference to the timer that will be queried.
  * @return true of timer active, else false
  */
-inline bool TIMER_active(Timer *timer)
+inline bool Timer_active(Timer *timer)
 {
     return timer->when;
 }
@@ -124,7 +124,7 @@ inline bool TIMER_active(Timer *timer)
  * @param timer reference to the timer that will be queried.
  * @return current timer period
  */
-inline uint32_t TIMER_period(Timer *timer)
+inline uint32_t Timer_period(Timer *timer)
 {
     return timer->period;
 }
@@ -133,35 +133,35 @@ inline uint32_t TIMER_period(Timer *timer)
  * @param timer reference to the timer that will be queried.
  * @return time remaining in msec.
  */
-uint32_t TIMER_remaining(Timer *timer);
+uint32_t Timer_remaining(Timer *timer);
 
 /** Start the timer.
  * @param timer reference to the timer that will be started.
  * @param period timer timeout period in msec;
  */
-inline void TIMER_start(Timer *timer, uint32_t period)
+inline void Timer_start(Timer *timer, uint32_t period)
 {
     timer->period = period;
-    TIMER_restart(timer);
+    Timer_restart(timer);
 }
 
 /** Stop the timer it it is running.
  * @param timer reference to the timer that will be stopped.
  */
-void TIMER_stop(Timer *timer);
+void Timer_stop(Timer *timer);
 
 /** Service any expired timers.
  */
-void TIMER_service(void);
+void Timer_service(void);
 
 /** Delay in a spin loop.
  * @param period timer timeout period in msec;
  */
-void TIMER_spinDelay(uint32_t period);
+void Timer_spinDelay(uint32_t period);
 
 /** Get the current time in msec since power on.
  * @return current time in msec
  */
-uint64_t TIMER_gettime(void);
+uint64_t Timer_gettime(void);
 
 #endif /* TIMER_H_ */

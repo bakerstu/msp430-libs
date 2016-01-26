@@ -24,10 +24,10 @@ typedef struct
     volatile uint16_t TAxCCR0; /**< Timer A capture/comapre 0 */
     volatile uint16_t TAxCCR1; /**< Timer A capture/comapre 1 */
     volatile uint16_t TAxCCR2; /**< Timer A capture/comapre 2 */
-} TIMER_A_Registers;
+} Timer_A_Registers;
 
 /** Timer A instance registers for TIMER instantiation */
-static volatile TIMER_A_Registers *registers = NULL;
+static volatile Timer_A_Registers *registers = NULL;
 
 /** current time */
 static uint64_t now = 0;
@@ -38,7 +38,7 @@ Timer *list = NULL;
 /** Get the current time in msec since power on.
  * @return current time in msec
  */
-uint64_t TIMER_gettime(void)
+uint64_t Timer_gettime(void)
 {
     return now;
 }
@@ -46,13 +46,13 @@ uint64_t TIMER_gettime(void)
 /** Delay in a spin loop.
  * @param period timer timeout period in msec;
  */
-void TIMER_spinDelay(uint32_t period)
+void Timer_spinDelay(uint32_t period)
 {
     uint64_t timeout = now + period;
 
     while (now < timeout)
     {
-        TIMER_service();
+        Timer_service();
     }
 }
 
@@ -60,7 +60,7 @@ void TIMER_spinDelay(uint32_t period)
 /** Insert timer into the timer list.
  * @param timer reference to the timer that will be inserted.
  */
-static void TIMER_insert(Timer *timer)
+static void Timer_insert(Timer *timer)
 {
     Timer *tp = list;
     Timer *last = NULL;
@@ -95,7 +95,7 @@ static void TIMER_insert(Timer *timer)
 /** Remove the timer from the list.
  * @param timer reference to the timer that will be removed.
  */
-static void TIMER_remove(Timer *timer)
+static void Timer_remove(Timer *timer)
 {
     Timer *tp = list;
     Timer *last = NULL;
@@ -131,28 +131,28 @@ static void TIMER_remove(Timer *timer)
 /** Restart the timer based on a previous period.
  * @param timer reference to the timer that will be restarted.
  */
-void TIMER_restart(Timer *timer)
+void Timer_restart(Timer *timer)
 {
-    TIMER_remove(timer);
+    Timer_remove(timer);
 
     timer->when = now + timer->period;
 
-    TIMER_insert(timer);
+    Timer_insert(timer);
 }
 
 /** Stop the timer it it is running.
  * @param timer reference to the timer that will be stopped.
  */
-void TIMER_stop(Timer *timer)
+void Timer_stop(Timer *timer)
 {
-    TIMER_remove(timer);
+    Timer_remove(timer);
 }
 
 /** Get the current time remaining before timer expires.
  * @param timer reference to the timer that will be queried.
  * @return time remaining in msec.
  */
-uint32_t TIMER_remaining(Timer *timer)
+uint32_t Timer_remaining(Timer *timer)
 {
     if (timer->when == 0)
     {
@@ -170,7 +170,7 @@ uint32_t TIMER_remaining(Timer *timer)
 
 /** Service any expired timers.
  */
-void TIMER_service(void)
+void Timer_service(void)
 {
     Timer *current = list;
 
@@ -185,28 +185,31 @@ void TIMER_service(void)
         {
             /* remove the timer from the active list */
             uint64_t when = timer->when;
-            TIMER_remove(timer);
+            Timer_remove(timer);
 
             /* service timer callback */
-            uint32_t result = timer->callback(timer->priv);
-            switch(result)
+            if (timer->callback)
             {
-                case TIMER_NONE:
-                    /* do not restart the timer */
-                    break;
-                default:
-                    /* restart the timer with a new period */
-                    timer->period = result;
-                    /* fall through */
-                case TIMER_RESTART:
-                    /* restart the timer */
-                    timer->when = when + timer->period;
-                    TIMER_insert(timer);
-                    break;
+                uint32_t result = timer->callback(timer->priv);
+                switch(result)
+                {
+                    case TIMER_NONE:
+                        /* do not restart the timer */
+                        break;
+                    default:
+                        /* restart the timer with a new period */
+                        timer->period = result;
+                        /* fall through */
+                    case TIMER_RESTART:
+                        /* restart the timer */
+                        timer->when = when + timer->period;
+                        Timer_insert(timer);
+                        break;
+                }
+                /* restart loop from the beginning in case list has changed */
+                current = list;
             }
             WDT_kick();
-            /* restart loop from the beginning in case list has changed */
-            current = list;
         }
         else
         {
@@ -219,7 +222,7 @@ void TIMER_service(void)
 /*
  * TIMER_init
  */
-void TIMER_init(uint16_t instance, TIMER_Config *config)
+void Timer_init(uint16_t instance, Timer_Config *config)
 {
     if (registers != NULL)
     {
@@ -227,7 +230,7 @@ void TIMER_init(uint16_t instance, TIMER_Config *config)
         return;
     }
 
-    registers = (volatile TIMER_A_Registers*)instance;
+    registers = (volatile Timer_A_Registers*)instance;
 
     /* stop and clear timer */
     registers->TAxCTL = MC_0 + TACLR;
