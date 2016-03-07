@@ -1,0 +1,130 @@
+/**
+@mainpage
+
+@tableofcontents
+
+@section intro_section Introduction
+This project implements a set of libraires that, supplements MSP430Ware,
+driverlib, and provides libraries for devices that don't have driverlib support.
+
+
+@section license_section License Terms
+    @subsection bsd_license_section BSD License
+    The majority of the source code in this project is provided under a three
+    clause BSD license:
+
+    @code 
+    Copyright (c) <year>, Texas Instruments Incorporated
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions
+    are met:
+
+    -  Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+
+    -  Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in the
+       documentation and/or other materials provided with the distribution.
+
+    -  Neither the name of Texas Instruments Incorporated nor the names of
+       its contributors may be used to endorse or promote products derived
+       from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+    AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+    THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+    PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+    CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+    EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+    PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+    OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+    WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+    OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+    EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    @endcode
+
+    @subsection ti_license_section Texas Instruments Proprietary License
+    Some files, including the EEPROM Emulation, are provided under a Texas
+    Instruments proprietary license:
+
+    @code
+    Copyright (c) <year>, Texas Instruments Incorporated.  All rights reserved.
+    Software License Agreement
+ 
+    Texas Instruments (TI) is supplying this software for use solely and
+    exclusively on TI's microcontroller products. The software is owned by
+    TI and/or its suppliers, and is protected under applicable copyright
+    laws. You may not combine this software with "viral" open-source
+    software in order to form a larger program.
+ 
+    THIS SOFTWARE IS PROVIDED "AS IS" AND WITH ALL FAULTS.
+    NO WARRANTIES, WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING, BUT
+    NOT LIMITED TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+    A PARTICULAR PURPOSE APPLY TO THIS SOFTWARE. TI SHALL NOT, UNDER ANY
+    CIRCUMSTANCES, BE LIABLE FOR SPECIAL, INCIDENTAL, OR CONSEQUENTIAL
+    DAMAGES, FOR ANY REASON WHATSOEVER.
+    @endcode
+
+
+@section eeprom_section EEPROM
+This library provides support for EEPROM access on MSP430 devices.  Typically
+MSP430 devices do not provide on-chip EEPROM, in which case an emulation
+library is provided.  The generic interface to EEPROM is provided in
+@ref eeprom.h.  Note that the EEPROM Emulation implementation as devined in
+@ref eeprom_emulation.h and eeprom_emulation.c fall under the @ref
+ti_license_section.
+
+
+@section peripherals_section Peripheral Drivers
+This library provides support for peripherals in the driver style for devices
+that do not have a driverlib implementation.  These drivers go one extra step
+above that of a typical driverlib implementation in that they provide a fully
+functional abstract interface for some typical (basic) use cases.
+
+    @subsection uscib_i2c_section USCIB I2C Driver
+    The I2C driver as implemented in @ref uscib_i2c.h and @ref uscib_i2c.c
+    provides an abstraction of the I2C peripheral for use by the application.
+
+    @subsection adc10_driver_section ADC Driver
+    The ADC driver as implemented in @ref adc10.h and @ref adc10.c provides
+    a very simple abstraction for performing ADC converstions.
+    
+    @subsection wdt_driver_section Watchdog Timer Driver
+    The Watchdog Timer driver as implemented in @ref wdt.h provides a very
+    simple abstration for initializing and kicking the watchdog.
+
+
+@section utils_section Utilities
+This library provides support for useful utilities including valuable software
+constructs.
+
+    @subsection timer_utility_section Timer Utility
+    The Timer utility as implemented in @ref timer.h and @ref timer.c provides
+    a software timer implementation based on a single periodic hardware timer.
+    Any number of software timers can be created and registered with a user
+    callback for when they expire.  The hardware timer runs off of SMCLK
+    powered by the DCO and therefore is disabled (paused) whenever in LPM3 mode.
+    
+    The Timer driver requires a periodic call of @ref Timer_service() in order
+    to check for expired timers and call their respective handlers.  The user
+    application can decide if the
+    timer is restarted (with @ref TIMER_RESTART), stopped (with @ref
+    TIMER_NONE), or restarted with a new period (with new period in msec) as
+    the return value from the timer callback handler.
+
+    @subsection lpm_utility_section Low Power Mode Utility
+    The Low Power Mode utility as implemented in @ref lpm.h and @ref lpm.c
+    provides a thin abstraction of the low power mode features of the chip.
+    The utility keeps track of low power mode state in a way that is easy to
+    use and maintain by a higher level application.
+
+
+@section bq769x0_driver_section BQ769x0 Driver
+The BQ769x0 driver as implemented in @ref bq769x0.h and @ref bq769x0.c
+provides an abstraction for accessing the BQ769x0 registers over I2C.
+The BQ769x0 communicates in big endian byte order over I2C. Endian swapping
+is handed automatically by the driver for word based operations.
+
+*/
