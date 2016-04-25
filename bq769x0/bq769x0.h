@@ -130,4 +130,9 @@ void BQ769X0_dischargeSignal(bool active);
  */
 void BQ769X0_cellBalanceOn(BQ769X0_CellBalance cell);
 
+/** Get the current charge percentage.
+ * @return charge percentage (0-100%)
+ */
+uint8_t BQ769X0_charge_percent(void);
+
 #endif /* BQ769X0_H_ */

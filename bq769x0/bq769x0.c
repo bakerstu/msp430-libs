@@ -293,7 +293,7 @@ static uint16_t adcGain_uV = 0;
 /** ADC offset in mV */
 static int8_t adcOffset_mV = 0;
 
-/** Raw ADC conversion voltage for a given state of charte
+/** Raw ADC conversion voltage for a given state of charge
  */
 static const uint16_t batteryCharge[] =
 {
@@ -419,7 +419,7 @@ void BQ769X0_wakeup(void)
 
     uint16_t i;
 
-    for (i = 0; i < sizeof(batteryCharge)/sizeof(batteryCharge[0]); ++i)
+    for (i = 0; i < (sizeof(batteryCharge)/sizeof(batteryCharge[0]) - 1); ++i)
     {
         if (battery_voltage <= batteryCharge[i])
         {
@@ -599,9 +599,24 @@ void BQ769X0_cellBalanceOn(BQ769X0_CellBalance cell)
     BQ769X0_registerWrite(BQ_CELLBAL1, cell);
 }
 
-uint16_t BQ769X0_charge_percent(void)
+/** Get the current charge percentage.
+ * @return charge percentage (0-100%)
+ */
+uint8_t BQ769X0_charge_percent(void)
 {
-    return 0;
+    int64_t nah_per_1_percent = BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL / 100LL;
+
+    int64_t percent = nAH / nah_per_1_percent;
+
+    if (percent < 0)
+    {
+        percent = 0;
+    }
+    else if (percent > 100)
+    {
+        percent = 100;
+    }
+    return percent;
 }
 
 /** Read a register value on the Bq769x0 device.
