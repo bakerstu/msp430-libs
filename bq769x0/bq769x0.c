@@ -281,8 +281,8 @@ typedef struct
 /** I2C address of the device. */
 static uint8_t i2c_address;
 
-/** total coulombCount */
-static int64_t coulombCount = 0;
+/** total nAH */
+/*static*/ int64_t nAH = 0;
 
 /** total stack voltage */
 static uint16_t batVoltage_mV = 0;
@@ -293,6 +293,8 @@ static uint16_t adcGain_uV = 0;
 /** ADC offset in mV */
 static int8_t adcOffset_mV = 0;
 
+/** Raw ADC conversion voltage for a given state of charte
+ */
 static const uint16_t batteryCharge[] =
 {
     432, ///<  0.0% charge
@@ -337,6 +339,11 @@ static const uint16_t batteryCharge[] =
     644, ///< 97.5% charge
     651, ///< 100% charge
 };
+
+/** This is essentially the number of points in the batteryCharge table + 1
+ */
+#define PERCENT_CHARGE_TABLE_FACTOR (BATTERY_MAH_CAPACITY_USER / \
+    ((sizeof(batteryCharge) / sizeof(batteryCharge[0])) - 1))
 
 uint8_t BQ769X0_registerRead(BQ769X0_Register reg);
 uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg);
@@ -393,7 +400,7 @@ void BQ769X0_init(BQ769X0_Device device)
  */
 void BQ769X0_wakeup(void)
 {
-    GPIO_OUTPUT_SET(THERMISTER_ENABLE);
+    gpio_enable_voltage_and_temp();
     BQ769X0_enable();
 
     BQ769X0_AdcGain1 adcgain1;
@@ -407,8 +414,8 @@ void BQ769X0_wakeup(void)
     adcOffset_mV = BQ769X0_registerRead(BQ_ADCOFFSET);
 
     /** @todo not the correct place to do, it should be as soon as we wakeup */
-    uint16_t battery_voltage = ADC_convert(ADC_CH_1);
-    GPIO_OUTPUT_CLR(THERMISTER_ENABLE);
+    uint16_t battery_voltage = ADC_convert(MSP430_ADC_BATTERY_VOLTAGE_USER);
+    gpio_disable_voltage_and_temp();
 
     uint16_t i;
 
@@ -420,7 +427,8 @@ void BQ769X0_wakeup(void)
         }
     }
 
-    coulombCount = i * 125;
+    nAH = i * PERCENT_CHARGE_TABLE_FACTOR;
+    nAH *= 1000LL * 1000LL;
 
     BQ769X0_registerWrite(BQ_PROTECT1, BQ769X0_PROTECT1_USER);
     BQ769X0_registerWrite(BQ_PROTECT2, BQ769X0_PROTECT2_USER);
@@ -464,17 +472,34 @@ void BQ769X0_service(void)
 
     if (status.ccReady)
     {
-        BQ769X0_CC cc;
+        volatile BQ769X0_CC cc;
 
         /* coulomb data ready, update coulomb count */
         cc.word = BQ769X0_registerReadWord(BQ_CC);
 
-        /* Translate to mA, multiply by 1000.
-         * Sampled every 250 msec, divide by 4 to normalize to 1 second.
-         * Divide by amps/tick to normalize to the sense resistance
-         * Nomralize to hours, divide by 3600.
-         */
-        coulombCount += (cc.cc * 1000) / BQ769X0_CURRENT_SENSE_PER_TICK / 4 / 3600;
+        /* filter out some noise */
+        if (cc.cc > 2 || cc.cc < -2)
+        {
+            /* Translate to mA, multiply by 1000.
+             * Sampled every 250 msec, divide by 4 to normalize to 1 second.
+             * Divide by amps/tick to normalize to the sense resistance
+             * Nomralize to hours, divide by 3600.
+             */
+            nAH += (cc.cc * 1000LL * 1000LL * 1000LL) /
+                   BQ769X0_CC_PER_AMP / 4 / 3600;
+            /* make sure we truncate at 100% charged */
+            if (nAH > (BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL))
+            {
+                nAH = BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL;
+            }
+            else if (nAH < 0)
+            {
+                nAH = 0;
+                /** @todo set a zero charge flag so that we don't creap up with
+                 * a rebase.
+                 */
+            }
+        }
 
         BQ769X0_SysStat clear;
         clear.ccReady = 1;
@@ -501,7 +526,7 @@ void BQ769X0_coulombCountStart(void)
 
     sys_ctrl2.ccEnable = 1;
 
-    BQ769X0_registerWrite(BQ_SYS_CTRL1, sys_ctrl2.byte);
+    BQ769X0_registerWrite(BQ_SYS_CTRL2, sys_ctrl2.byte);
 }
 
 /** Stop coulomb counting.
@@ -513,9 +538,9 @@ void BQ769X0_coulombCountStop(void)
 
     sys_ctrl2.ccEnable = 0;
 
-    BQ769X0_registerWrite(BQ_SYS_CTRL1, sys_ctrl2.byte);
+    BQ769X0_registerWrite(BQ_SYS_CTRL2, sys_ctrl2.byte);
 }
-
+#if 0
 /** Get current coulomb count value.
  * @return current coulomb count value
  */
@@ -523,7 +548,7 @@ int64_t BQ769X0_coulombCountGet(void)
 {
     return coulombCount;
 }
-
+#endif
 /** Enter "SHIP" mode, aka: put the device to sleep.
  */
 void BQ769X0_enterShipMode(void)
