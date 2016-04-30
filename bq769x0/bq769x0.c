@@ -284,14 +284,13 @@ static uint8_t i2c_address;
 /** total nAH */
 /*static*/ int64_t nAH = 0;
 
-/** total stack voltage */
-static uint16_t batVoltage_mV = 0;
-
 /** ADC gain in uV */
 static uint16_t adcGain_uV = 0;
 
 /** ADC offset in mV */
 static int8_t adcOffset_mV = 0;
+
+static bool isCharging = false;
 
 /** Raw ADC conversion voltage for a given state of charge
  */
@@ -452,13 +451,6 @@ void BQ769X0_wakeup(void)
      */
     BQ769X0_registerWrite(BQ_SYS_CTRL2, 0x42);
 
-    int32_t voltage = BQ769X0_registerReadWord(BQ_BAT);
-
-    int32_t batVoltage_uV = (4 * voltage * (int32_t)adcGain_uV) +
-                            (5 * 1000 * (int32_t)adcOffset_mV);
-
-    batVoltage_mV = (batVoltage_uV + 500) / 1000;
-
     /* clear any faults */
     BQ769X0_registerWrite(BQ_SYS_STAT, 0xFF);
 }
@@ -470,6 +462,7 @@ void BQ769X0_service(void)
     BQ769X0_SysStat status;
     status.byte = BQ769X0_registerRead(BQ_SYS_STAT);
 
+    /* every ~250 msec */
     if (status.ccReady)
     {
         volatile BQ769X0_CC cc;
@@ -480,6 +473,16 @@ void BQ769X0_service(void)
         /* filter out some noise */
         if (cc.cc > 2 || cc.cc < -2)
         {
+            /* setup or charging status flag */
+            if (cc.cc > 2)
+            {
+                isCharging = true;
+            }
+            else
+            {
+                isCharging = false;
+            }
+
             /* Translate to mA, multiply by 1000.
              * Sampled every 250 msec, divide by 4 to normalize to 1 second.
              * Divide by amps/tick to normalize to the sense resistance
@@ -499,6 +502,10 @@ void BQ769X0_service(void)
                  * a rebase.
                  */
             }
+        }
+        else
+        {
+            isCharging = false;
         }
 
         BQ769X0_SysStat clear;
@@ -604,9 +611,8 @@ void BQ769X0_cellBalanceOn(BQ769X0_CellBalance cell)
  */
 uint8_t BQ769X0_charge_percent(void)
 {
-    int64_t nah_per_1_percent = BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL / 100LL;
-
-    int64_t percent = nAH / nah_per_1_percent;
+    int64_t percent;
+    percent = nAH / (BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL / 100LL);
 
     if (percent < 0)
     {
@@ -617,6 +623,14 @@ uint8_t BQ769X0_charge_percent(void)
         percent = 100;
     }
     return percent;
+}
+
+/** Determine if the battery is charging (positive coulumn count).
+ * @return true if charging, else false
+ */
+bool BQ769X0_is_charging(void)
+{
+    return isCharging;
 }
 
 /** Read a register value on the Bq769x0 device.
