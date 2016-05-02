@@ -295,7 +295,8 @@ static bool isCharging = false;
 /** This is essentially the number of points in the batteryCharge table + 1
  */
 #define PERCENT_CHARGE_TABLE_FACTOR (BATTERY_MAH_CAPACITY_USER / \
-    ((sizeof(BQ769X0_batteryCharge) / sizeof(BQ769X0_batteryCharge[0])) - 1))
+    ((sizeof(BQ769X0_batteryChargeUser) / \
+    sizeof(BQ769X0_batteryChargeUser[0])) - 1))
 
 uint8_t BQ769X0_registerRead(BQ769X0_Register reg);
 uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg);
@@ -371,9 +372,9 @@ void BQ769X0_wakeup(void)
 
     uint16_t i;
 
-    for (i = 0; i < (sizeof(BQ769X0_batteryCharge)/sizeof(BQ769X0_batteryCharge[0]) - 1); ++i)
+    for (i = 0; i < (sizeof(BQ769X0_batteryChargeUser)/sizeof(BQ769X0_batteryChargeUser[0]) - 1); ++i)
     {
-        if (battery_voltage <= BQ769X0_batteryCharge[i])
+        if (battery_voltage <= BQ769X0_batteryChargeUser[i])
         {
             break;
         }
