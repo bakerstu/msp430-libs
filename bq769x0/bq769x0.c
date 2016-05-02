@@ -292,57 +292,10 @@ static int8_t adcOffset_mV = 0;
 
 static bool isCharging = false;
 
-/** Raw ADC conversion voltage for a given state of charge
- */
-static const uint16_t batteryCharge[] =
-{
-    432, ///<  0.0% charge
-    465, ///<  2.5% charge
-    500, ///<  5.0% charge
-    525, ///<  7.5% charge
-    534, ///< 10.0% charge
-    536, ///< 12.5% charge
-    537, ///< 15.0% charge
-    541, ///< 17.5% charge
-    546, ///< 20.0% charge
-    550, ///< 22.5% charge
-    553, ///< 25.0% charge
-    555, ///< 27.5% charge
-    556, ///< 30.0% charge
-    557, ///< 32.5% charge
-    558, ///< 35.0% charge
-    559, ///< 37.5% charge
-    560, ///< 40.0% charge
-    561, ///< 42.5% charge
-    563, ///< 45.0% charge
-    564, ///< 47.5% charge
-    566, ///< 50.0% charge
-    567, ///< 52.5% charge
-    572, ///< 55.0% charge
-    576, ///< 57.5% charge
-    580, ///< 60.0% charge
-    583, ///< 62.5% charge
-    586, ///< 65.0% charge
-    590, ///< 67.5% charge
-    594, ///< 70.0% charge
-    597, ///< 72.5% charge
-    601, ///< 75.0% charge
-    606, ///< 77.5% charge
-    610, ///< 80.0% charge
-    614, ///< 82.5% charge
-    619, ///< 85.0% charge
-    624, ///< 87.5% charge
-    629, ///< 90.0% charge
-    633, ///< 92.5% charge
-    639, ///< 95.0% charge
-    644, ///< 97.5% charge
-    651, ///< 100% charge
-};
-
 /** This is essentially the number of points in the batteryCharge table + 1
  */
 #define PERCENT_CHARGE_TABLE_FACTOR (BATTERY_MAH_CAPACITY_USER / \
-    ((sizeof(batteryCharge) / sizeof(batteryCharge[0])) - 1))
+    ((sizeof(BQ769X0_batteryCharge) / sizeof(BQ769X0_batteryCharge[0])) - 1))
 
 uint8_t BQ769X0_registerRead(BQ769X0_Register reg);
 uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg);
@@ -418,9 +371,9 @@ void BQ769X0_wakeup(void)
 
     uint16_t i;
 
-    for (i = 0; i < (sizeof(batteryCharge)/sizeof(batteryCharge[0]) - 1); ++i)
+    for (i = 0; i < (sizeof(BQ769X0_batteryCharge)/sizeof(BQ769X0_batteryCharge[0]) - 1); ++i)
     {
-        if (battery_voltage <= batteryCharge[i])
+        if (battery_voltage <= BQ769X0_batteryCharge[i])
         {
             break;
         }
@@ -547,15 +500,7 @@ void BQ769X0_coulombCountStop(void)
 
     BQ769X0_registerWrite(BQ_SYS_CTRL2, sys_ctrl2.byte);
 }
-#if 0
-/** Get current coulomb count value.
- * @return current coulomb count value
- */
-int64_t BQ769X0_coulombCountGet(void)
-{
-    return coulombCount;
-}
-#endif
+
 /** Enter "SHIP" mode, aka: put the device to sleep.
  */
 void BQ769X0_enterShipMode(void)
