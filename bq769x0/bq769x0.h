@@ -133,11 +133,11 @@ void BQ769X0_cellBalanceOn(BQ769X0_CellBalance cell);
 /** Get the current charge percentage.
  * @return charge percentage (0-100%)
  */
-uint8_t BQ769X0_charge_percent(void);
+uint8_t BQ769X0_chargePercent(void);
 
 /** Determine if the battery is charging (positive coulumn count).
  * @return true if charging, else false
  */
-bool BQ769X0_is_charging(void);
+bool BQ769X0_isCharging(void);
 
 #endif /* BQ769X0_H_ */
