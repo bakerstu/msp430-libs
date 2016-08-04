@@ -30,7 +30,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @file low_power_mode.h
+ * @file lpm.h
  * Manage low power modes.
  *
  * @author Stuart W. Baker

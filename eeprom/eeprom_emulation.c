@@ -206,6 +206,7 @@ void EEPROM_init()
 
 /** Write a byte of data to the EEPROM.
  * @param index EEPROM address index to write
+ * @param data data byte to write
  */
 void EEPROM_write(uint8_t index, uint8_t data)
 {
