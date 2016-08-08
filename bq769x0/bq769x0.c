@@ -290,7 +290,13 @@ static uint16_t adcGain_uV = 0;
 /** ADC offset in mV */
 static int8_t adcOffset_mV = 0;
 
+/** present charging status as determined by the coulomb counter sign */
 static bool isCharging = false;
+
+/** we currently have cell ballencing enabled */
+static bool isBalancing = false;
+
+void (*sleepResetTimeout)(void);
 
 /** This is essentially the number of points in the batteryCharge table + 1
  */
@@ -298,16 +304,20 @@ static bool isCharging = false;
     ((sizeof(BQ769X0_batteryChargeUser) / \
     sizeof(BQ769X0_batteryChargeUser[0])) - 1))
 
-uint8_t BQ769X0_registerRead(BQ769X0_Register reg);
-uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg);
-void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data);
-void BQ769X0_registerWriteWord(BQ769X0_WordRegister reg, uint16_t data);
+static uint8_t BQ769X0_registerRead(BQ769X0_Register reg);
+static uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg);
+static void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data);
+#if 0
+static void BQ769X0_registerWriteWord(BQ769X0_WordRegister reg, uint16_t data);
+#endif
+static BQ769X0_CellBalance BQ769X0_cellBalanceIndexTranslate(int index);
 
 /** Initialize the BQ769x0 device.
  * @param device Device type that is being used
  */
-void BQ769X0_init(BQ769X0_Device device)
+void BQ769X0_init(BQ769X0_Device device, void (*sleep_reset_timeout)(void))
 {
+    sleepResetTimeout = sleep_reset_timeout;
     switch (device)
     {
         default:
@@ -456,6 +466,9 @@ void BQ769X0_service(void)
                  * a rebase.
                  */
             }
+
+            /* we detected charge/discharge activity, reset sleep timeout */
+            sleepResetTimeout();
         }
         else
         {
@@ -465,6 +478,170 @@ void BQ769X0_service(void)
         BQ769X0_SysStat clear;
         clear.ccReady = 1;
         BQ769X0_registerWrite(BQ_SYS_STAT, clear.byte);
+#if 1
+        if (!isCharging)
+        {
+            if (isBalancing)
+            {
+                BQ769X0_cellBalanceOn(
+                    BQ769X0_cellBalanceIndexTranslate(BQ_CELL_NONE_BALANCE));
+                isBalancing = false;
+            }
+            return;
+        }
+        /* check for cell ballancing */
+        uint16_t cell_voltage[BQ769X0_CELL_COUNT];
+        for (int i = 0, j = 0; i < BQ769X0_CELL_COUNT; ++i, ++j)
+        {
+#if BQ769X0_CELL_COUNT == 3
+            if (i == 2)
+            {
+                /* skip VC3-VC2 and VC4-VC3 */
+                j += 2;
+            }
+#elif BQ769X0_CELL_COUNT == 4
+            if (i == 3)
+            {
+                /* skip VC4-VC3 */
+                ++j;
+            }
+#elif BQ769X0_CELL_COUNT == 6
+            if (i == 2 || i == 5)
+            {
+                /* skip VC3-VC2 and VC4-VC3 */
+                j += 2;
+            }
+#elif BQ769X0_CELL_COUNT == 7
+            if (i == 3)
+            {
+                /* skip VC3-VC2 and VC4-VC3 */
+                ++j;
+            }
+            if (i == 6)
+            {
+                /* skip VC3-VC2 and VC4-VC3 */
+                j += 2;
+            }
+#elif BQ769X0_CELL_COUNT == 8
+            if (i == 3 || i == 7)
+            {
+                /* skip VC3-VC2 and VC4-VC3 */
+                ++j;
+            }
+#elif BQ769X0_CELL_COUNT == 9
+            if (i == 8)
+            {
+                /* skip VC3-VC2 and VC4-VC3 */
+                ++j;
+            }
+#endif
+            /** @todo add support for up to 15 cells */
+
+            /* read cell voltage */
+            int read_index = BQ_VC1 + (j * 2);
+            cell_voltage[i] =
+                BQ769X0_registerReadWord((BQ769X0_WordRegister)read_index);
+        }
+        static int old_highest = 0;
+        int highest = 0;
+        int lowest = 0;
+        {
+            /* find the highest and lowest cell indexes */
+            for (int i = 1; i < BQ769X0_CELL_COUNT; ++i)
+            {
+                if (cell_voltage[i] > cell_voltage[highest])
+                {
+                    highest = i;
+                }
+                if (cell_voltage[i] < cell_voltage[lowest])
+                {
+                    highest = i;
+                }
+            }
+            if (((cell_voltage[highest] - cell_voltage[lowest]) >=
+                 BQ769X0_MV_CELL_BALLANCE_START && !isBalancing) ||
+                (old_highest != highest && isBalancing))
+            {
+                BQ769X0_cellBalanceOn(
+                    BQ769X0_cellBalanceIndexTranslate(highest));
+                isBalancing = true;
+                old_highest = highest;
+            }
+            if ((cell_voltage[highest] - cell_voltage[lowest]) <=
+                BQ769X0_MV_CELL_BALLANCE_STOP && isBalancing)
+            {
+                BQ769X0_cellBalanceOn(
+                    BQ769X0_cellBalanceIndexTranslate(BQ_CELL_NONE_BALANCE));
+                isBalancing = false;
+            }
+        }
+#endif
+    }
+}
+
+/** Translate from the logical configuration index (3 - 15 cells) to the index
+ * index and ultimate enumaration used by @ref BQ769X0_CellBalance.
+ * @param index logical configuration index
+ * @return @ref BQ769X0_CellBalance enumeration coresponding to index
+ */
+static BQ769X0_CellBalance BQ769X0_cellBalanceIndexTranslate(int index)
+{
+    int actual_index = index;
+#if BQ769X0_CELL_COUNT == 3
+                if (index == 2)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    actual_index += 2;
+                }
+#elif BQ769X0_CELL_COUNT == 4
+                if (index == 3)
+                {
+                    /* skip VC4-VC3 */
+                    ++actual_index;
+                }
+#elif BQ769X0_CELL_COUNT == 6
+                if (index == 2 || index == 5)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    actual_index += 2;
+                }
+#elif BQ769X0_CELL_COUNT == 7
+                if (index == 3)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    ++actual_index;
+                }
+                if (index == 6)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    actual_index += 2;
+                }
+#elif BQ769X0_CELL_COUNT == 8
+                if (index == 3 || index == 7)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    ++actual_index;
+                }
+#elif BQ769X0_CELL_COUNT == 9
+                if (index == 8)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    ++actual_index;
+                }
+#endif
+    switch (actual_index)
+    {
+        default:
+        case 0:
+            return BQ_CELL_1_BALANCE;
+        case 1:
+            return BQ_CELL_2_BALANCE;
+        case 2:
+            return BQ_CELL_3_BALANCE;
+        case 3:
+            return BQ_CELL_4_BALANCE;
+        case 4:
+            return BQ_CELL_5_BALANCE;
     }
 }
 
@@ -583,7 +760,7 @@ bool BQ769X0_isCharging(void)
  * @param reg register to read
  * @return value read
  */
-uint8_t BQ769X0_registerRead(BQ769X0_Register reg)
+static uint8_t BQ769X0_registerRead(BQ769X0_Register reg)
 {
     uint8_t wr_data[1] = {reg};
     uint8_t rd_data[1];
@@ -597,7 +774,7 @@ uint8_t BQ769X0_registerRead(BQ769X0_Register reg)
  * @param reg register to read
  * @return value read
  */
-uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg)
+static uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg)
 {
     uint8_t wr_data[1] = {reg};
     uint8_t rd_data[2];
@@ -611,20 +788,22 @@ uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg)
  * @param reg register to write
  * @param data data to write
  */
-void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data)
+static void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data)
 {
     uint8_t wr_data[2] = {reg, data};
 
     I2C_send(BQ769X0_I2C_MODULE, i2c_address, wr_data, 2);
 }
 
+#if 0
 /** Write a word (2 byte) register value on the Bq769x0 device.
  * @param reg register to write
  * @param data data to write
  */
-void BQ769X0_registerWriteWord(BQ769X0_WordRegister reg, uint16_t data)
+static void BQ769X0_registerWriteWord(BQ769X0_WordRegister reg, uint16_t data)
 {
     uint8_t wr_data[3] = {reg, data >> 8, data & 0xFF};
 
     I2C_send(BQ769X0_I2C_MODULE, i2c_address, wr_data, 3);
 }
+#endif

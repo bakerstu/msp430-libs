@@ -74,6 +74,7 @@ typedef enum
  */
 typedef enum
 {
+    BQ_CELL_NONE_BALANCE = 0x00, ///< cell 1 balance
     BQ_CELL_1_BALANCE = 0x01, ///< cell 1 balance
     BQ_CELL_2_BALANCE = 0x02, ///< cell 2 balance
     BQ_CELL_3_BALANCE = 0x04, ///< cell 3 balance
@@ -83,8 +84,10 @@ typedef enum
 
 /** Initialize the BQ769x0 device.
  * @param device Device type that is being used
+ * @param sleep_reset_timeout callback function to reset sleep timer whenever
+ *        the BQ769x0 detects activity
  */
-void BQ769X0_init(BQ769X0_Device device);
+void BQ769X0_init(BQ769X0_Device device, void (*sleep_reset_timeout)(void));
 
 /** Wakeup the BQ769x0 and reinitialize its volatile state.
  */
