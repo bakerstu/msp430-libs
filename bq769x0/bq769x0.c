@@ -43,7 +43,7 @@
 #include "timer.h"
 #include "gpio.h"
 
-/**@todo add comments here */
+/* These are the various I2C addresses for the various skew of BQ769X0 */
 #define BQ769X000_I2C_ADDR 0x08
 #define BQ769X001_I2C_ADDR 0x08
 #define BQ769X002_I2C_ADDR 0x08
@@ -278,14 +278,14 @@ typedef struct
     };
 } BQ769X0_AdcGain2;
 
-/** I2C address of the device. */
-static uint8_t i2c_address;
-
 /** total nAH */
 /*static*/ int64_t nAH = 0;
 
 /** ADC gain in uV */
 static uint16_t adcGain_uV = 0;
+
+/** I2C address of the device. */
+static uint8_t i2c_address;
 
 /** ADC offset in mV */
 static int8_t adcOffset_mV = 0;
@@ -295,6 +295,9 @@ static bool isCharging = false;
 
 /** we currently have cell ballencing enabled */
 static bool isBalancing = false;
+
+/** schedule a rebasing operation */
+static bool rebase = false;
 
 void (*sleepResetTimeout)(void);
 
@@ -310,7 +313,10 @@ static void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data);
 #if 0
 static void BQ769X0_registerWriteWord(BQ769X0_WordRegister reg, uint16_t data);
 #endif
+static void BQ769X0_rebase(void);
+static void BQ769X0_cellBalanceTest(void);
 static BQ769X0_CellBalance BQ769X0_cellBalanceIndexTranslate(int index);
+static int64_t BQ769X0_getCoulombCount(void);
 
 /** Initialize the BQ769x0 device.
  * @param device Device type that is being used
@@ -380,19 +386,12 @@ void BQ769X0_wakeup(void)
     uint16_t battery_voltage = ADC_convert(MSP430_ADC_BATTERY_VOLTAGE_USER);
     gpio_disable_voltage_and_temp();
 
-    uint16_t i;
+    /** @todo only rebase if we have been idle for five hours or more, use ACLK.
+     * We also need to defer this to the BQ769X0_service() method
+     */
+    rebase = true;
 
-    for (i = 0; i < (sizeof(BQ769X0_batteryChargeUser)/sizeof(BQ769X0_batteryChargeUser[0]) - 1); ++i)
-    {
-        if (battery_voltage <= BQ769X0_batteryChargeUser[i])
-        {
-            break;
-        }
-    }
-
-    nAH = i * PERCENT_CHARGE_TABLE_FACTOR;
-    nAH *= 1000LL * 1000LL;
-
+    /* update volatile protection registers */
     BQ769X0_registerWrite(BQ_PROTECT1, BQ769X0_PROTECT1_USER);
     BQ769X0_registerWrite(BQ_PROTECT2, BQ769X0_PROTECT2_USER);
     BQ769X0_registerWrite(BQ_PROTECT3, BQ769X0_PROTECT3_USER);
@@ -423,225 +422,55 @@ void BQ769X0_wakeup(void)
  */
 void BQ769X0_service(void)
 {
+    static unsigned int count = 0;
     BQ769X0_SysStat status;
     status.byte = BQ769X0_registerRead(BQ_SYS_STAT);
 
-    /* every ~250 msec */
-    if (status.ccReady)
+    if (!status.ccReady)
     {
-        volatile BQ769X0_CC cc;
-
-        /* coulomb data ready, update coulomb count */
-        cc.word = BQ769X0_registerReadWord(BQ_CC);
-
-        /* filter out some noise */
-        if (cc.cc > 2 || cc.cc < -2)
-        {
-            /* setup or charging status flag */
-            if (cc.cc > 2)
-            {
-                isCharging = true;
-            }
-            else
-            {
-                isCharging = false;
-            }
-
-            /* Translate to mA, multiply by 1000.
-             * Sampled every 250 msec, divide by 4 to normalize to 1 second.
-             * Divide by amps/tick to normalize to the sense resistance
-             * Nomralize to hours, divide by 3600.
-             */
-            nAH += (cc.cc * 1000LL * 1000LL * 1000LL) /
-                   BQ769X0_CC_PER_AMP / 4 / 3600;
-            /* make sure we truncate at 100% charged */
-            if (nAH > (BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL))
-            {
-                nAH = BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL;
-            }
-            else if (nAH < 0)
-            {
-                nAH = 0;
-                /** @todo set a zero charge flag so that we don't creap up with
-                 * a rebase.
-                 */
-            }
-
-            /* we detected charge/discharge activity, reset sleep timeout */
-            sleepResetTimeout();
-        }
-        else
-        {
-            isCharging = false;
-        }
-
-        BQ769X0_SysStat clear;
-        clear.ccReady = 1;
-        BQ769X0_registerWrite(BQ_SYS_STAT, clear.byte);
-#if 1
-        if (!isCharging)
-        {
-            if (isBalancing)
-            {
-                BQ769X0_cellBalanceOn(
-                    BQ769X0_cellBalanceIndexTranslate(BQ_CELL_NONE_BALANCE));
-                isBalancing = false;
-            }
-            return;
-        }
-        /* check for cell ballancing */
-        uint16_t cell_voltage[BQ769X0_CELL_COUNT];
-        for (int i = 0, j = 0; i < BQ769X0_CELL_COUNT; ++i, ++j)
-        {
-#if BQ769X0_CELL_COUNT == 3
-            if (i == 2)
-            {
-                /* skip VC3-VC2 and VC4-VC3 */
-                j += 2;
-            }
-#elif BQ769X0_CELL_COUNT == 4
-            if (i == 3)
-            {
-                /* skip VC4-VC3 */
-                ++j;
-            }
-#elif BQ769X0_CELL_COUNT == 6
-            if (i == 2 || i == 5)
-            {
-                /* skip VC3-VC2 and VC4-VC3 */
-                j += 2;
-            }
-#elif BQ769X0_CELL_COUNT == 7
-            if (i == 3)
-            {
-                /* skip VC3-VC2 and VC4-VC3 */
-                ++j;
-            }
-            if (i == 6)
-            {
-                /* skip VC3-VC2 and VC4-VC3 */
-                j += 2;
-            }
-#elif BQ769X0_CELL_COUNT == 8
-            if (i == 3 || i == 7)
-            {
-                /* skip VC3-VC2 and VC4-VC3 */
-                ++j;
-            }
-#elif BQ769X0_CELL_COUNT == 9
-            if (i == 8)
-            {
-                /* skip VC3-VC2 and VC4-VC3 */
-                ++j;
-            }
-#endif
-            /** @todo add support for up to 15 cells */
-
-            /* read cell voltage */
-            int read_index = BQ_VC1 + (j * 2);
-            cell_voltage[i] =
-                BQ769X0_registerReadWord((BQ769X0_WordRegister)read_index);
-        }
-        static int old_highest = 0;
-        int highest = 0;
-        int lowest = 0;
-        {
-            /* find the highest and lowest cell indexes */
-            for (int i = 1; i < BQ769X0_CELL_COUNT; ++i)
-            {
-                if (cell_voltage[i] > cell_voltage[highest])
-                {
-                    highest = i;
-                }
-                if (cell_voltage[i] < cell_voltage[lowest])
-                {
-                    highest = i;
-                }
-            }
-            if (((cell_voltage[highest] - cell_voltage[lowest]) >=
-                 BQ769X0_MV_CELL_BALLANCE_START && !isBalancing) ||
-                (old_highest != highest && isBalancing))
-            {
-                BQ769X0_cellBalanceOn(
-                    BQ769X0_cellBalanceIndexTranslate(highest));
-                isBalancing = true;
-                old_highest = highest;
-            }
-            if ((cell_voltage[highest] - cell_voltage[lowest]) <=
-                BQ769X0_MV_CELL_BALLANCE_STOP && isBalancing)
-            {
-                BQ769X0_cellBalanceOn(
-                    BQ769X0_cellBalanceIndexTranslate(BQ_CELL_NONE_BALANCE));
-                isBalancing = false;
-            }
-        }
-#endif
+        /* ~250 msec timer has not expired */
+        return;
     }
-}
 
-/** Translate from the logical configuration index (3 - 15 cells) to the index
- * index and ultimate enumaration used by @ref BQ769X0_CellBalance.
- * @param index logical configuration index
- * @return @ref BQ769X0_CellBalance enumeration coresponding to index
- */
-static BQ769X0_CellBalance BQ769X0_cellBalanceIndexTranslate(int index)
-{
-    int actual_index = index;
-#if BQ769X0_CELL_COUNT == 3
-                if (index == 2)
-                {
-                    /* skip VC3-VC2 and VC4-VC3 */
-                    actual_index += 2;
-                }
-#elif BQ769X0_CELL_COUNT == 4
-                if (index == 3)
-                {
-                    /* skip VC4-VC3 */
-                    ++actual_index;
-                }
-#elif BQ769X0_CELL_COUNT == 6
-                if (index == 2 || index == 5)
-                {
-                    /* skip VC3-VC2 and VC4-VC3 */
-                    actual_index += 2;
-                }
-#elif BQ769X0_CELL_COUNT == 7
-                if (index == 3)
-                {
-                    /* skip VC3-VC2 and VC4-VC3 */
-                    ++actual_index;
-                }
-                if (index == 6)
-                {
-                    /* skip VC3-VC2 and VC4-VC3 */
-                    actual_index += 2;
-                }
-#elif BQ769X0_CELL_COUNT == 8
-                if (index == 3 || index == 7)
-                {
-                    /* skip VC3-VC2 and VC4-VC3 */
-                    ++actual_index;
-                }
-#elif BQ769X0_CELL_COUNT == 9
-                if (index == 8)
-                {
-                    /* skip VC3-VC2 and VC4-VC3 */
-                    ++actual_index;
-                }
-#endif
-    switch (actual_index)
+    if (rebase)
     {
-        default:
-        case 0:
-            return BQ_CELL_1_BALANCE;
-        case 1:
-            return BQ_CELL_2_BALANCE;
-        case 2:
-            return BQ_CELL_3_BALANCE;
-        case 3:
-            return BQ_CELL_4_BALANCE;
-        case 4:
-            return BQ_CELL_5_BALANCE;
+        BQ769X0_rebase();
+        rebase = false;
+    }
+
+    nAH += BQ769X0_getCoulombCount();
+
+    /* make sure we truncate at 100% charged */
+    if (nAH > (BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL))
+    {
+        nAH = BATTERY_MAH_CAPACITY_USER * 1000LL * 1000LL;
+    }
+    else if (nAH < 0)
+    {
+        nAH = 0;
+        /** @todo set a zero charge flag so that we don't creap up with
+         * a rebase.  This would prevent a rebase after battery rest until the
+         * next charge cycle.
+         *
+         * Had a discussion with Keith and we don't think we really
+         * need to do this.
+         */
+    }
+
+    BQ769X0_SysStat clear;
+    clear.ccReady = 1;
+    BQ769X0_registerWrite(BQ_SYS_STAT, clear.byte);
+
+    /* we only only test for cell balancing periodically to save processing
+     * time.
+     *
+     * If we are not charging, we will also see if we need to turn of balancing
+     * just in case
+     */
+    if (count++ >= (BQ769X0_CELL_BALANCE_TEST_PERIOD_USER * 4) || !isCharging)
+    {
+        BQ769X0_cellBalanceTest();
+        count = 0;
     }
 }
 
@@ -650,7 +479,7 @@ static BQ769X0_CellBalance BQ769X0_cellBalanceIndexTranslate(int index)
 void BQ769X0_enable(void)
 {
     GPIO_DIRECTION_OUTPUT(BQ_WAKEUP);
-    Timer_spinDelay(15);
+    Timer_spinDelay(11);
     GPIO_DIRECTION_INPUT(BQ_WAKEUP);
     Timer_spinDelay(2);
 }
@@ -754,6 +583,261 @@ uint8_t BQ769X0_chargePercent(void)
 bool BQ769X0_isCharging(void)
 {
     return isCharging;
+}
+
+/** Get a precision battery voltage measurement and rebase the coulomb counter.
+ */
+static void BQ769X0_rebase(void)
+{
+    uint16_t i;
+    uint16_t battery_voltage = BQ769X0_registerReadWord(BQ_BAT);
+
+    for (i = 0; i < (sizeof(BQ769X0_batteryChargeUser)/sizeof(BQ769X0_batteryChargeUser[0]) - 1); ++i)
+    {
+        if (battery_voltage <= BQ769X0_batteryChargeUser[i])
+        {
+            break;
+        }
+    }
+
+    nAH = i * PERCENT_CHARGE_TABLE_FACTOR;
+    nAH *= 1000LL * 1000LL;
+}
+
+/** Determine if cell balancing is reqiured, and update cell balancing state
+ * if necessary.
+ */
+static void BQ769X0_cellBalanceTest(void)
+{
+    if (!isCharging)
+    {
+        if (isBalancing)
+        {
+            BQ769X0_cellBalanceOn(
+                BQ769X0_cellBalanceIndexTranslate(BQ_CELL_NONE_BALANCE));
+            isBalancing = false;
+        }
+        return;
+    }
+
+    /* check for cell balancing */
+    uint16_t cell_voltage[BQ769X0_CELL_COUNT];
+    for (int i = 0, j = 0; i < BQ769X0_CELL_COUNT; ++i, ++j)
+    {
+#if BQ769X0_CELL_COUNT == 3
+        if (i == 2)
+        {
+            /* skip VC3-VC2 and VC4-VC3 */
+            j += 2;
+        }
+#elif BQ769X0_CELL_COUNT == 4
+        if (i == 3)
+        {
+            /* skip VC4-VC3 */
+            ++j;
+        }
+#elif BQ769X0_CELL_COUNT == 6
+        if (i == 2 || i == 5)
+        {
+            /* skip VC3-VC2 and VC4-VC3 */
+            j += 2;
+        }
+#elif BQ769X0_CELL_COUNT == 7
+        if (i == 3)
+        {
+            /* skip VC3-VC2 and VC4-VC3 */
+            ++j;
+        }
+        if (i == 6)
+        {
+            /* skip VC3-VC2 and VC4-VC3 */
+            j += 2;
+        }
+#elif BQ769X0_CELL_COUNT == 8
+        if (i == 3 || i == 7)
+        {
+            /* skip VC3-VC2 and VC4-VC3 */
+            ++j;
+        }
+#elif BQ769X0_CELL_COUNT == 9
+        if (i == 8)
+        {
+            /* skip VC3-VC2 and VC4-VC3 */
+            ++j;
+        }
+#endif
+        /** @todo add support for up to 15 cells */
+
+        /* read cell voltage */
+        int read_index = BQ_VC1 + (j * 2);
+        cell_voltage[i] =
+            BQ769X0_registerReadWord((BQ769X0_WordRegister)read_index);
+    }
+    static int old_highest = 0;
+    int highest = 0;
+    int lowest = 0;
+
+    /* find the highest and lowest cell indexes */
+    for (int i = 1; i < BQ769X0_CELL_COUNT; ++i)
+    {
+        if (cell_voltage[i] > cell_voltage[highest])
+        {
+            highest = i;
+        }
+        if (cell_voltage[i] < cell_voltage[lowest])
+        {
+            lowest = i;
+        }
+    }
+
+    int balance_index;
+    if (cell_voltage[highest] < BQ769X0_MV_CELL_BALANCE_MIN_USER)
+    {
+        if (!isBalancing)
+        {
+            /* not above minimum voltage to start ballancing, bail */
+            return;
+        }
+
+        /* should never get to this point, but just in case, turn
+         * off cell ballancing
+         */
+        balance_index = -1;
+    }
+    else if ((cell_voltage[highest] - cell_voltage[lowest]) <=
+        BQ769X0_MV_CELL_BALANCE_STOP_USER && isBalancing)
+    {
+        /* we are balancing and we have crossed our stop balancing
+         * threashold
+         */
+        balance_index = -1;
+    }
+    else if ((isBalancing && highest != old_highest) ||
+             ((cell_voltage[highest] - cell_voltage[lowest]) >=
+              BQ769X0_MV_CELL_BALANCE_START_USER && !isBalancing))
+    {
+        /* we are balancing, but have a new highest voltage cell
+         *
+         * ...or...
+         *
+         * we are not balancing and we have crossed our start balancing
+         * threashold
+         */
+        balance_index = old_highest = highest;
+    }
+    else
+    {
+        return;
+    }
+
+    /* update balancing state */
+    BQ769X0_cellBalanceOn(BQ769X0_cellBalanceIndexTranslate(balance_index));
+    isBalancing = balance_index == BQ_CELL_NONE_BALANCE ? false : true;
+}
+
+/** Get the last coulomb count.
+ * @return coulomb count change in nAH
+ */
+static int64_t BQ769X0_getCoulombCount(void)
+{
+    BQ769X0_CC cc;
+
+    /* coulomb data ready, update coulomb count */
+    cc.word = BQ769X0_registerReadWord(BQ_CC);
+
+    /* filter out some noise */
+    if (cc.cc > 2 || cc.cc < -2)
+    {
+        sleepResetTimeout();
+
+        /* setup or charging status flag */
+        if (cc.cc > 2)
+        {
+            isCharging = true;
+        }
+        else
+        {
+            isCharging = false;
+        }
+
+        /* Translate to mA, multiply by 1000.
+         * Sampled every 250 msec, divide by 4 to normalize to 1 second.
+         * Divide by amps/tick to normalize to the sense resistance
+         * Nomralize to hours, divide by 3600.
+         */
+       return (cc.cc * 1000LL * 1000LL * 1000LL) /
+               BQ769X0_CC_PER_AMP_USER / 4 / 3600;
+    }
+
+    isCharging = false;
+    return 0;
+}
+
+/** Translate from the logical configuration index (3 - 15 cells) to the index
+ * index and ultimate enumaration used by @ref BQ769X0_CellBalance.
+ * @param index logical configuration index
+ * @return @ref BQ769X0_CellBalance enumeration coresponding to index
+ */
+static BQ769X0_CellBalance BQ769X0_cellBalanceIndexTranslate(int index)
+{
+    int actual_index = index;
+#if BQ769X0_CELL_COUNT == 3
+                if (index == 2)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    actual_index += 2;
+                }
+#elif BQ769X0_CELL_COUNT == 4
+                if (index == 3)
+                {
+                    /* skip VC4-VC3 */
+                    ++actual_index;
+                }
+#elif BQ769X0_CELL_COUNT == 6
+                if (index == 2 || index == 5)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    actual_index += 2;
+                }
+#elif BQ769X0_CELL_COUNT == 7
+                if (index == 3)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    ++actual_index;
+                }
+                if (index == 6)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    actual_index += 2;
+                }
+#elif BQ769X0_CELL_COUNT == 8
+                if (index == 3 || index == 7)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    ++actual_index;
+                }
+#elif BQ769X0_CELL_COUNT == 9
+                if (index == 8)
+                {
+                    /* skip VC3-VC2 and VC4-VC3 */
+                    ++actual_index;
+                }
+#endif
+    switch (actual_index)
+    {
+        default:
+            return BQ_CELL_NONE_BALANCE;
+        case 0:
+            return BQ_CELL_1_BALANCE;
+        case 1:
+            return BQ_CELL_2_BALANCE;
+        case 2:
+            return BQ_CELL_3_BALANCE;
+        case 3:
+            return BQ_CELL_4_BALANCE;
+        case 4:
+            return BQ_CELL_5_BALANCE;
+    }
 }
 
 /** Read a register value on the Bq769x0 device.
