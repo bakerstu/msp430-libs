@@ -299,6 +299,9 @@ static bool isBalancing = false;
 /** schedule a rebasing operation */
 static bool rebase = false;
 
+/** lockout rebasing operations */
+static bool rebaseLockout = false;
+
 void (*sleepResetTimeout)(void);
 
 /** This is essentially the number of points in the batteryCharge table + 1
@@ -313,7 +316,7 @@ static void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data);
 #if 0
 static void BQ769X0_registerWriteWord(BQ769X0_WordRegister reg, uint16_t data);
 #endif
-static void BQ769X0_rebase(void);
+static void BQ769X0_rebase(bool only_on_full);
 static void BQ769X0_cellBalanceTest(void);
 static BQ769X0_CellBalance BQ769X0_cellBalanceIndexTranslate(int index);
 static int64_t BQ769X0_getCoulombCount(void);
@@ -423,6 +426,7 @@ void BQ769X0_wakeup(void)
 void BQ769X0_service(void)
 {
     static unsigned int count = 0;
+    static bool is_charging_last = false;
     BQ769X0_SysStat status;
     status.byte = BQ769X0_registerRead(BQ_SYS_STAT);
 
@@ -434,7 +438,13 @@ void BQ769X0_service(void)
 
     if (rebase)
     {
-        BQ769X0_rebase();
+        /* make sure that we did not lock out our rebasing.  The rebase lockout
+         * is cleared when we start charging next.
+         */
+        if (!rebaseLockout)
+        {
+            BQ769X0_rebase(false);
+        }
         rebase = false;
     }
 
@@ -448,13 +458,7 @@ void BQ769X0_service(void)
     else if (nAH < 0)
     {
         nAH = 0;
-        /** @todo set a zero charge flag so that we don't creap up with
-         * a rebase.  This would prevent a rebase after battery rest until the
-         * next charge cycle.
-         *
-         * Had a discussion with Keith and we don't think we really
-         * need to do this.
-         */
+        rebaseLockout = true;
     }
 
     BQ769X0_SysStat clear;
@@ -472,6 +476,14 @@ void BQ769X0_service(void)
         BQ769X0_cellBalanceTest();
         count = 0;
     }
+
+    /* test if our charging state has changed from charging to not charging */
+    if (!isCharging && is_charging_last)
+    {
+        /* we stopped charging, rebase if the pack is full */
+        BQ769X0_rebase(true);
+    }
+    is_charging_last = isCharging;
 }
 
 /** Enable and/or wakeup the BQ769x0.
@@ -586,12 +598,21 @@ bool BQ769X0_isCharging(void)
 }
 
 /** Get a precision battery voltage measurement and rebase the coulomb counter.
+ * @param only_on_full only rebase if pack voltage is above
  */
-static void BQ769X0_rebase(void)
+static void BQ769X0_rebase(bool only_on_full)
 {
     uint16_t i;
     uint16_t battery_voltage = BQ769X0_registerReadWord(BQ_BAT);
 
+    if (only_on_full)
+    {
+        if (battery_voltage < (BQ769X0_MV_CELL_FULL_CHARGE_USER * BQ769X0_CELL_COUNT))
+        {
+            /* battery not full, don't rebase */
+            return;
+        }
+    }
     for (i = 0; i < (sizeof(BQ769X0_batteryChargeUser)/sizeof(BQ769X0_batteryChargeUser[0]) - 1); ++i)
     {
         if (battery_voltage <= BQ769X0_batteryChargeUser[i])
@@ -754,6 +775,7 @@ static int64_t BQ769X0_getCoulombCount(void)
         if (cc.cc > 2)
         {
             isCharging = true;
+            rebaseLockout = false;
         }
         else
         {
