@@ -143,4 +143,9 @@ uint8_t BQ769X0_chargePercent(void);
  */
 bool BQ769X0_isCharging(void);
 
+/** Get the current of the battery averaged over a 250 msec period
+ * @return current in amps
+ */
+int16_t BQ769X0_current(void);
+
 #endif /* BQ769X0_H_ */

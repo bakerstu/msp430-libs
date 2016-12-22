@@ -281,6 +281,9 @@ typedef struct
 /** total nAH */
 /*static*/ int64_t nAH = 0;
 
+/** current in amps averaged over 250 msec */
+static int16_t current;
+
 /** ADC gain in uV */
 static uint16_t adcGain_uV = 0;
 
@@ -597,6 +600,14 @@ bool BQ769X0_isCharging(void)
     return isCharging;
 }
 
+/** Get the current of the battery averaged over a 250 msec period
+ * @return current in amps
+ */
+int16_t BQ769X0_current(void)
+{
+    return current;
+}
+
 /** Get a precision battery voltage measurement and rebase the coulomb counter.
  * @param only_on_full only rebase if pack voltage is above
  */
@@ -782,12 +793,14 @@ static int64_t BQ769X0_getCoulombCount(void)
             isCharging = false;
         }
 
-        /* Translate to mA, multiply by 1000.
+        current = cc.cc / BQ769X0_CC_PER_AMP_USER;
+
+        /* Translate to nA, multiply by 1000 * 1000 * 1000.
          * Sampled every 250 msec, divide by 4 to normalize to 1 second.
          * Divide by amps/tick to normalize to the sense resistance
          * Nomralize to hours, divide by 3600.
          */
-       return (cc.cc * 1000LL * 1000LL * 1000LL) /
+        return (cc.cc * 1000LL * 1000LL * 1000LL) /
                BQ769X0_CC_PER_AMP_USER / 4 / 3600;
     }
 
