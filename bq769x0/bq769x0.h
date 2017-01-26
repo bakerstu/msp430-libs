@@ -148,4 +148,8 @@ bool BQ769X0_isCharging(void);
  */
 int16_t BQ769X0_current(void);
 
+/** Request that the BQ769X0 perform a rebase at the next opportunity.
+ */
+void BQ769X0_rebaseRequest(void);
+
 #endif /* BQ769X0_H_ */

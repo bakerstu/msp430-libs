@@ -46,4 +46,8 @@
 #define MAGIC_USED_INDEX   2
 #define MAGIC_COUNT        3
 
+#define MAGIC_CONST      0xFF00
+#define MAGIC_INDEX      0xFE00
+#define MAGIC_CONST_MASK 0xFF00
+
 #endif /* INCLUDE_EEPROM_EMULATION_H_ */

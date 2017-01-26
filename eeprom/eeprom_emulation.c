@@ -23,17 +23,35 @@
  */
 
 #include "eeprom_emulation.h"
+#include "msp430_libs_user.h"
 
 #include <msp430.h>
 
 #include "wdt.h"
 
+extern const uint16_t eepromConst[EEPROM_BYTE_COUNT];
 extern uint16_t eepromMem[FLASH_SIZE/sizeof(uint16_t)];
 
-uint8_t shaddowRam[EEPROM_BYTE_COUNT];
+uint8_t shaddowRam[EEPROM_SHADDOW_BYTE_COUNT];
 
 static int activeIndex = 0;
 static int available = 0;
+
+/** Get the shaddow RAM index for a given EEPROM index.
+ * @param
+ */
+static int shaddowRamIndex(uint8_t index)
+{
+    if ((eepromConst[index] & MAGIC_CONST_MASK) == MAGIC_CONST)
+    {
+        return -1;
+    }
+
+    /* we don't necessarily store data when it is equal 0xFF, so assume value
+     * is 0xFF if not found.
+     */
+    return eepromConst[index] & ~MAGIC_CONST_MASK;
+}
 
 /** Return the number of sectors being used for emulation.
  * @return sector count
@@ -188,7 +206,13 @@ void EEPROM_init()
 
     for (unsigned int i = 0; i < EEPROM_BYTE_COUNT; ++i)
     {
-        shaddowRam[i] = 0xFF; // default value if not found
+        int shaddow_index = shaddowRamIndex(i);
+        if (shaddow_index < 0)
+        {
+            /* this is constant data */
+            continue;
+        }
+        shaddowRam[shaddow_index] = 0xFF; // default value if not found
         for (uint16_t *address = slotLast(active());
              address != magicLast(active());
              --address)
@@ -196,7 +220,7 @@ void EEPROM_init()
             if (i == (*address >> 8))
             {
                 /* found the data */
-                shaddowRam[i] = *address & 0xFF;
+                shaddowRam[shaddow_index] = *address & 0xFF;
                 break;
             }
         }
@@ -216,10 +240,17 @@ void EEPROM_write(uint8_t index, uint8_t data)
         return;
     }
 
+    int shaddow_index = shaddowRamIndex(index);
+    if (shaddow_index < 0)
+    {
+        /* this is constant data */
+        return;
+    }
+
     if (EEPROM_read(index) != data)
     {
         /* new data value to store */
-        shaddowRam[index] = data;
+        shaddowRam[shaddow_index] = data;
 
         if (available)
         {
@@ -245,6 +276,11 @@ void EEPROM_write(uint8_t index, uint8_t data)
             for (unsigned int i = 0; i < EEPROM_BYTE_COUNT; ++i)
             {
                 uint16_t slot_data = i << 8;
+                if (shaddowRamIndex(i) < 0)
+                {
+                    /* constant data */
+                    continue;
+                }
                 if (i == index)
                 {
                     slot_data += data;
@@ -280,8 +316,13 @@ uint8_t EEPROM_read(uint8_t index)
         return 0xFF;
     }
 
+    if ((eepromConst[index] & MAGIC_CONST_MASK) == MAGIC_CONST)
+    {
+        return eepromConst[index] & ~MAGIC_CONST_MASK;
+    }
+
     /* we don't necessarily store data when it is equal 0xFF, so assume value
      * is 0xFF if not found.
      */
-    return shaddowRam[index];
+    return shaddowRam[shaddowRamIndex(index)];
 }

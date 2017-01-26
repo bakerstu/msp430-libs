@@ -60,10 +60,7 @@ static void ADC_enable(ADC_Channel channel)
  */
 void ADC_init(void)
 {
-    ADC10CTL0 = ADC10SHT_3 + /*ADC10SR*/ + ADC10ON + ADC10IE;
     ADC10CTL1 = ADC10DIV_7;
-
-
     ADC_calibrate();
 }
 
@@ -71,9 +68,11 @@ void ADC_init(void)
  */
 void ADC_calibrate(void)
 {
+    ADC10CTL0 = ADC10SHT_3 + ADC10ON + ADC10IE;
     ADC10CTL1 = ADC10DIV_7 + ADC_VCC_DIV_2 * INCH_1;
     ADC10CTL0 |= ENC + ADC10SC;
     LPM_enter0();
+    ADC10CTL0 = 0;
 
     adcOffsetError = 511 - ADC10MEM;
 
@@ -91,13 +90,13 @@ uint16_t ADC_convert(ADC_Channel channel)
 
     ADC_enable(channel);
 
+    ADC10CTL0 = ADC10SHT_3 + ADC10ON + ADC10IE;
     ADC10CTL1 = ADC10DIV_7 + channel * INCH_1;
     ADC10CTL0 |= ENC + ADC10SC;
     LPM_enter0();
+    ADC10CTL0 = 0;
 
     result = ADC10MEM + adcOffsetError;
-
-    ADC10CTL0 &= ~ENC;
 
     if (result < 0)
     {

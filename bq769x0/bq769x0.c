@@ -42,6 +42,7 @@
 #include "msp430_libs_user.h"
 #include "timer.h"
 #include "gpio.h"
+#include "led.h"
 
 /* These are the various I2C addresses for the various skew of BQ769X0 */
 #define BQ769X000_I2C_ADDR 0x08
@@ -278,6 +279,16 @@ typedef struct
     };
 } BQ769X0_AdcGain2;
 
+/** ADC Offset */
+typedef struct
+{
+    union
+    {
+        uint8_t byte; ///< full register byte value
+        int8_t offset; ///< signed value
+    };
+} BQ769X0_AdcOffset;
+
 /** total nAH */
 /*static*/ int64_t nAH = 0;
 
@@ -313,6 +324,7 @@ void (*sleepResetTimeout)(void);
     ((sizeof(BQ769X0_batteryChargeUser) / \
     sizeof(BQ769X0_batteryChargeUser[0])) - 1))
 
+static uint16_t adc_voltage_calibrated(uint16_t counts);
 static uint8_t BQ769X0_registerRead(BQ769X0_Register reg);
 static uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg);
 static void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data);
@@ -320,6 +332,7 @@ static void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data);
 static void BQ769X0_registerWriteWord(BQ769X0_WordRegister reg, uint16_t data);
 #endif
 static void BQ769X0_rebase(bool only_on_full);
+static void BQ769X0_rebaseTest(void);
 static void BQ769X0_cellBalanceTest(void);
 static BQ769X0_CellBalance BQ769X0_cellBalanceIndexTranslate(int index);
 static int64_t BQ769X0_getCoulombCount(void);
@@ -361,9 +374,12 @@ void BQ769X0_init(BQ769X0_Device device, void (*sleep_reset_timeout)(void))
             break;
     }
 
+    /* rebase on the first time startup */
+    rebase = true;
+
     BQ769X0_wakeup();
 
-    GPIO_INTERRUPT_HIGH_TO_LOW(BQ_FAULT_INT);
+    GPIO_INTERRUPT_LOW_TO_HIGH(BQ_FAULT_INT);
     GPIO_INTERRUPT_ENABLE(BQ_FAULT_INT);
 
     //GPIO_INTERRUPT_HIGH_TO_LOW(BQ_ALERT_INT);
@@ -378,24 +394,21 @@ void BQ769X0_wakeup(void)
     gpio_enable_voltage_and_temp();
     BQ769X0_enable();
 
-    BQ769X0_AdcGain1 adcgain1;
-    BQ769X0_AdcGain2 adcgain2;
+    BQ769X0_AdcGain1 adc_gain1;
+    BQ769X0_AdcGain2 adc_gain2;
+    BQ769X0_AdcOffset adc_offset;
 
-    adcgain1.byte = BQ769X0_registerRead(BQ_ADCGAIN1);
-    adcgain2.byte = BQ769X0_registerRead(BQ_ADCGAIN2);
+    adc_gain1.byte = BQ769X0_registerRead(BQ_ADCGAIN1);
+    adc_gain2.byte = BQ769X0_registerRead(BQ_ADCGAIN2);
 
-    adcGain_uV = 365 + (adcgain1.adcgain3_4 << 3) + adcgain2.adcgain0_1_2;
+    adc_offset.byte = BQ769X0_registerRead(BQ_ADCOFFSET);
 
-    adcOffset_mV = BQ769X0_registerRead(BQ_ADCOFFSET);
+    adcGain_uV = 365 + (adc_gain1.adcgain3_4 << 3) + adc_gain2.adcgain0_1_2;
+    adcOffset_mV = adc_offset.offset;
 
     /** @todo not the correct place to do, it should be as soon as we wakeup */
     uint16_t battery_voltage = ADC_convert(MSP430_ADC_BATTERY_VOLTAGE_USER);
     gpio_disable_voltage_and_temp();
-
-    /** @todo only rebase if we have been idle for five hours or more, use ACLK.
-     * We also need to defer this to the BQ769X0_service() method
-     */
-    rebase = true;
 
     /* update volatile protection registers */
     BQ769X0_registerWrite(BQ_PROTECT1, BQ769X0_PROTECT1_USER);
@@ -422,6 +435,9 @@ void BQ769X0_wakeup(void)
 
     /* clear any faults */
     BQ769X0_registerWrite(BQ_SYS_STAT, 0xFF);
+
+    /* check if we need to rebase */
+    //BQ769X0_rebaseTest();
 }
 
 /** Service any pending BQ769x0 tasks.
@@ -439,17 +455,7 @@ void BQ769X0_service(void)
         return;
     }
 
-    if (rebase)
-    {
-        /* make sure that we did not lock out our rebasing.  The rebase lockout
-         * is cleared when we start charging next.
-         */
-        if (!rebaseLockout)
-        {
-            BQ769X0_rebase(false);
-        }
-        rebase = false;
-    }
+    BQ769X0_rebaseTest();
 
     nAH += BQ769X0_getCoulombCount();
 
@@ -608,6 +614,32 @@ int16_t BQ769X0_current(void)
     return current;
 }
 
+/** Request that the BQ769X0 perform a rebase at the next opportunity.
+ */
+void BQ769X0_rebaseRequest(void)
+{
+    rebase = true;
+}
+
+/** Convert the 14-bit ADC reading to a calibrated mV reading.
+ * @param counts ADC counts
+ * @return calibrated ADC value in mV
+ */
+static uint16_t adc_voltage_calibrated(uint16_t counts)
+{
+    /* factor in gain */
+    int32_t result = (uint32_t)counts * adcGain_uV;
+
+    /* round up and divide by 1000 to get mV */
+    result += 500;
+    result /= 1000;
+
+    /* factor in offset */
+    result += adcOffset_mV;
+
+    return result;
+}
+
 /** Get a precision battery voltage measurement and rebase the coulomb counter.
  * @param only_on_full only rebase if pack voltage is above
  */
@@ -634,6 +666,23 @@ static void BQ769X0_rebase(bool only_on_full)
 
     nAH = i * PERCENT_CHARGE_TABLE_FACTOR;
     nAH *= 1000LL * 1000LL;
+}
+
+/** Test if a rebase is required, and perform it if so.
+ */
+static void BQ769X0_rebaseTest(void)
+{
+    if (rebase)
+    {
+        /* make sure that we did not lock out our rebasing.  The rebase lockout
+         * is cleared when we start charging next.
+         */
+        if (!rebaseLockout)
+        {
+            BQ769X0_rebase(false);
+        }
+        rebase = false;
+    }
 }
 
 /** Determine if cell balancing is reqiured, and update cell balancing state
@@ -778,18 +827,19 @@ static int64_t BQ769X0_getCoulombCount(void)
     cc.word = BQ769X0_registerReadWord(BQ_CC);
 
     /* filter out some noise */
-    if (cc.cc > 2 || cc.cc < -2)
+    if (cc.cc > 4 || cc.cc < -25)
     {
         sleepResetTimeout();
 
         /* setup or charging status flag */
-        if (cc.cc > 2)
+        if (cc.cc > 0)
         {
             isCharging = true;
             rebaseLockout = false;
         }
         else
         {
+            //LED_testRedOn();
             isCharging = false;
         }
 
@@ -804,6 +854,7 @@ static int64_t BQ769X0_getCoulombCount(void)
                BQ769X0_CC_PER_AMP_USER / 4 / 3600;
     }
 
+    //LED_testRedOff();
     isCharging = false;
     return 0;
 }
