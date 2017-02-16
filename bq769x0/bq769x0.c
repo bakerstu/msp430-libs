@@ -415,7 +415,7 @@ void BQ769X0_wakeup(void)
     BQ769X0_registerWrite(BQ_PROTECT2, BQ769X0_PROTECT2_USER);
     BQ769X0_registerWrite(BQ_PROTECT3, BQ769X0_PROTECT3_USER);
     BQ769X0_registerWrite(BQ_OV_TRIP, BQ769X0_OV_TRIP_USER);
-    BQ769X0_registerWrite(BQ_UV_TRIP, BQ769X0_UV_TRIP_USER);
+    BQ769X0_registerWrite(BQ_UV_TRIP, 0);
 
     /* The CC_CFG register, per the datasheet, should always be 0x19 */
     BQ769X0_registerWrite(BQ_CC_CFG, 0x19);
@@ -529,6 +529,23 @@ void BQ769X0_coulombCountStop(void)
     BQ769X0_registerWrite(BQ_SYS_CTRL2, sys_ctrl2.byte);
 }
 
+/** Turn on/off under voltage tracking.
+ * @param enabled true to enable under voltage tracking, else false
+ */
+void BQ769X0_underVoltageTracking(bool enabled)
+{
+    static bool enabled_last = false;
+
+    if (enabled && !enabled_last)
+    {
+        BQ769X0_registerWrite(BQ_UV_TRIP, BQ769X0_UV_TRIP_USER);
+    }
+    else if (!enabled && enabled_last )
+    {
+        BQ769X0_registerWrite(BQ_UV_TRIP, 0);
+    }
+    enabled_last = enabled;
+}
 /** Enter "SHIP" mode, aka: put the device to sleep.
  */
 void BQ769X0_enterShipMode(void)

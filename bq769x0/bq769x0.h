@@ -114,6 +114,11 @@ void BQ769X0_coulombCountStop(void);
  */
 int64_t BQ769X0_coulombCountGet(void);
 
+/** Turn on/off under voltage tracking.
+ * @param enabled true to enable under voltage tracking, else false
+ */
+void BQ769X0_underVoltageTracking(bool enabled);
+
 /** Enter "SHIP" mode, aka: put the device to sleep.
  */
 void BQ769X0_enterShipMode(void);
