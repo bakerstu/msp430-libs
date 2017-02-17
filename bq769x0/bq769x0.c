@@ -42,7 +42,6 @@
 #include "msp430_libs_user.h"
 #include "timer.h"
 #include "gpio.h"
-#include "led.h"
 
 /* These are the various I2C addresses for the various skew of BQ769X0 */
 #define BQ769X000_I2C_ADDR 0x08
@@ -439,10 +438,9 @@ void BQ769X0_service(void)
 {
     static unsigned int count = 0;
     static bool is_charging_last = false;
-    LED_testRedOn();
+
     BQ769X0_SysStat status;
     status.byte = BQ769X0_registerRead(BQ_SYS_STAT);
-    LED_testRedOff();
 
     if (!status.ccReady)
     {
@@ -851,7 +849,6 @@ static int64_t BQ769X0_getCoulombCount(void)
         }
         else
         {
-            //LED_testRedOn();
             isCharging = false;
         }
 
@@ -946,9 +943,7 @@ static uint8_t BQ769X0_registerRead(BQ769X0_Register reg)
 {
     uint8_t wr_data[1] = {reg};
     uint8_t rd_data[1];
-    //LED_testRedOn();
-    I2C_sendReceive(BQ769X0_I2C_MODULE, i2c_address, wr_data, 1, rd_data, 1);
-    //LED_testRedOff();
+    while (I2C_sendReceive(BQ769X0_I2C_MODULE, i2c_address, wr_data, 1, rd_data, 1) == false);
     return rd_data[0];
 }
 
@@ -960,9 +955,7 @@ static uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg)
 {
     uint8_t wr_data[1] = {reg};
     uint8_t rd_data[2];
-    //LED_testRedOn();
-    I2C_sendReceive(BQ769X0_I2C_MODULE, i2c_address, wr_data, 1, rd_data, 2);
-    //LED_testRedOff();
+    while (I2C_sendReceive(BQ769X0_I2C_MODULE, i2c_address, wr_data, 1, rd_data, 2) == false);
     return ((uint16_t)rd_data[0] << 8) + (uint16_t)rd_data[1];
 }
 
@@ -973,9 +966,7 @@ static uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg)
 static void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data)
 {
     uint8_t wr_data[2] = {reg, data};
-    //LED_testRedOn();
-    I2C_send(BQ769X0_I2C_MODULE, i2c_address, wr_data, 2);
-    //LED_testRedOff();
+    while (I2C_send(BQ769X0_I2C_MODULE, i2c_address, wr_data, 2) == false);
 }
 
 #if 0
@@ -987,6 +978,6 @@ static void BQ769X0_registerWriteWord(BQ769X0_WordRegister reg, uint16_t data)
 {
     uint8_t wr_data[3] = {reg, data >> 8, data & 0xFF};
 
-    I2C_send(BQ769X0_I2C_MODULE, i2c_address, wr_data, 3);
+    while (I2C_send(BQ769X0_I2C_MODULE, i2c_address, wr_data, 3) == false);
 }
 #endif
