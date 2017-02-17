@@ -378,13 +378,6 @@ void BQ769X0_init(BQ769X0_Device device, void (*sleep_reset_timeout)(void))
     rebase = true;
 
     BQ769X0_wakeup();
-
-    GPIO_INTERRUPT_LOW_TO_HIGH(BQ_FAULT_INT);
-    GPIO_INTERRUPT_ENABLE(BQ_FAULT_INT);
-
-    //GPIO_INTERRUPT_HIGH_TO_LOW(BQ_ALERT_INT);
-    //GPIO_INTERRUPT_ENABLE(BQ_ALERT_INT);
-
 }
 
 /** Wakeup the BQ769x0 and reinitialize its volatile state.
@@ -446,8 +439,10 @@ void BQ769X0_service(void)
 {
     static unsigned int count = 0;
     static bool is_charging_last = false;
+    LED_testRedOn();
     BQ769X0_SysStat status;
     status.byte = BQ769X0_registerRead(BQ_SYS_STAT);
+    LED_testRedOff();
 
     if (!status.ccReady)
     {
@@ -951,9 +946,9 @@ static uint8_t BQ769X0_registerRead(BQ769X0_Register reg)
 {
     uint8_t wr_data[1] = {reg};
     uint8_t rd_data[1];
-
+    //LED_testRedOn();
     I2C_sendReceive(BQ769X0_I2C_MODULE, i2c_address, wr_data, 1, rd_data, 1);
-
+    //LED_testRedOff();
     return rd_data[0];
 }
 
@@ -965,9 +960,9 @@ static uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg)
 {
     uint8_t wr_data[1] = {reg};
     uint8_t rd_data[2];
-
+    //LED_testRedOn();
     I2C_sendReceive(BQ769X0_I2C_MODULE, i2c_address, wr_data, 1, rd_data, 2);
-
+    //LED_testRedOff();
     return ((uint16_t)rd_data[0] << 8) + (uint16_t)rd_data[1];
 }
 
@@ -978,8 +973,9 @@ static uint16_t BQ769X0_registerReadWord(BQ769X0_WordRegister reg)
 static void BQ769X0_registerWrite(BQ769X0_Register reg, uint8_t data)
 {
     uint8_t wr_data[2] = {reg, data};
-
+    //LED_testRedOn();
     I2C_send(BQ769X0_I2C_MODULE, i2c_address, wr_data, 2);
+    //LED_testRedOff();
 }
 
 #if 0
