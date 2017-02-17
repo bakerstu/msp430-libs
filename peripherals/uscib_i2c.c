@@ -55,6 +55,15 @@
 
 #endif
 
+/** Status of I2C transaction.
+ */
+typedef enum
+{
+    I2C_SUCCESS = 0, /**< transaction completed successfully */
+    I2C_PENDING,     /**< transaction pending */
+    I2C_FAIL,        /**< transaction failure */
+} USCIB_I2C_Fault;
+
 /** Transaction size */
 static size_t i2cSize[CHANNEL_COUNT];
 
@@ -62,7 +71,7 @@ static size_t i2cSize[CHANNEL_COUNT];
 static uint8_t *i2cData[CHANNEL_COUNT];
 
 /** Transaction fault flag */
-static bool i2cFault[CHANNEL_COUNT];
+static USCIB_I2C_Fault i2cFault[CHANNEL_COUNT];
 
 /** Transaction direction flag */
 static bool i2cTransmit[CHANNEL_COUNT];
@@ -215,7 +224,7 @@ bool I2C_receive(uint16_t instance, uint8_t address, void *data, size_t size)
     i2cData[index] = (uint8_t*)data;
 
     /* assume a fault until successful */
-    i2cFault[index] = true;
+    i2cFault[index] = I2C_PENDING;
 
     /* setup transaction as a receive */
     i2cTransmit[index] = false;
@@ -263,10 +272,19 @@ bool I2C_receive(uint16_t instance, uint8_t address, void *data, size_t size)
     }
 
     /* Enter LPM0 w/interrupts */
-    LPM_enter0();
-    I2C_watchdogKick();
+    //LPM_enter0();
+    uint64_t start_time = Timer_gettime();
+    do
+    {
+        I2C_watchdogKick();
+        Timer_spinDelay(1);
+        if (i2cFault[index] == I2C_SUCCESS)
+        {
+            break;
+        }
+    } while (Timer_gettime() < (start_time + (size / 5) + 1));
 
-    return i2cFault[index] ? false : true;
+    return (i2cFault[index] != I2C_SUCCESS) ? false : true;
 }
 
 /*
@@ -314,7 +332,7 @@ bool I2C_send(uint16_t instance, uint8_t address, const void *data, size_t size)
     i2cData[index] = (uint8_t*)data;
 
     /* assume a fault until successful */
-    i2cFault[index] = true;
+    i2cFault[index] = I2C_PENDING;
 
     /* setup transaction as a receive */
     i2cTransmit[index] = true;
@@ -349,10 +367,19 @@ bool I2C_send(uint16_t instance, uint8_t address, const void *data, size_t size)
     }
 
     /* Enter LPM0 w/interrupts */
-    LPM_enter0();
-    I2C_watchdogKick();
+    //LPM_enter0();
+    uint64_t start_time = Timer_gettime();
+    do
+    {
+        I2C_watchdogKick();
+        Timer_spinDelay(1);
+        if (i2cFault[index] == I2C_SUCCESS)
+        {
+            break;
+        }
+    } while (Timer_gettime() < (start_time + (size / 5) + 1));
 
-    return i2cFault[index] ? false : true;
+    return (i2cFault[index] != I2C_SUCCESS) ? false : true;
 }
 
 /**
@@ -388,8 +415,8 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
             /* no more bytes to send, send stop condition, exit LPM0 */
             registers->UCBxCTL1 |= UCTXSTP;
             USCI_B0_IFG &= ~(USCI_B0_TXIFG);
-            i2cFault[0] = false;
-            LPM_exit0();
+            i2cFault[0] = I2C_SUCCESS;
+            //LPM_exit0();
         }
     }
     else
@@ -405,8 +432,8 @@ void __attribute__ ((interrupt(USCIAB0TX_VECTOR))) USCIAB0TX_ISR (void)
                 --i2cSize[0];
                 break;
             case 0:
-                i2cFault[0] = false;
-                LPM_exit0();
+                i2cFault[0] = I2C_SUCCESS;
+                //LPM_exit0();
                 break;
         }
     }
